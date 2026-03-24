@@ -1,6 +1,8 @@
-$(document).ready(function () {
-    setBlockRules();
-    setEvents();
+waitForData(function () {
+    $(document).ready(function () {
+        setBlockRules();
+        setEvents();
+    });
 });
 
 var forceHideOperations = false;

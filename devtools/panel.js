@@ -14,8 +14,10 @@ backgroundPageConnection.onMessage.addListener(function (message) {
 });
 
 jQuery(document).ready(function () {
-    ++data.nPanelClicked;
-    start();
+    waitForData(function () {
+        ++data.nPanelClicked;
+        start();
+    });
 });
 
 function start() {

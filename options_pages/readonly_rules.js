@@ -1,6 +1,8 @@
 $(document).ready(function () {
-    setReadOnlyRules();
-    setEvents();
+    waitForData(function () {
+        setReadOnlyRules();
+        setEvents();
+    });
 });
 
 var forceHideOperations = false;
