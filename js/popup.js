@@ -218,11 +218,10 @@ function createList(filters, isSeparateWindow) {
 function createAccordionList(cks, callback, callbackArguments) {
     let createAccordionCallback = callback;
     let createAccordionCallbackArguments = callbackArguments;
+    let cookiesListElement = $("#cookiesList");
 
-    try {
-        $("#cookiesList").accordion("destroy");
-    } catch (e) {
-        console.warn(e.message)
+    if (cookiesListElement.data("ui-accordion")) {
+        cookiesListElement.accordion("destroy");
     }
 
     if (cks === null)
@@ -290,11 +289,11 @@ function createAccordionList(cks, callback, callbackArguments) {
         }
         $('.expiration', cookie).val(expDate);
 
-        $("#cookiesList").append(titleElement);
-        $("#cookiesList").append(cookie);
+        cookiesListElement.append(titleElement);
+        cookiesListElement.append(cookie);
     }
 
-    $("#cookiesList").accordion({
+    cookiesListElement.accordion({
         autoHeight: false,
         heightStyle: "content",
         collapsible: true,
