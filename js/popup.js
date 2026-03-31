@@ -9,18 +9,20 @@ var lastInput = "";
 $.fx.speeds._default = 200;
 
 jQuery(document).ready(function () {
-    ++data.nPopupClicked;
-    start();
+    waitForData(function () {
+        ++data.nPopupClicked;
+        start();
 
-    /**
-     * Force Repaint
-     * Temporary workaround for Chromium #428044 bug
-     * https://bugs.chromium.org/p/chromium/issues/detail?id=428044#c35
-     */
-    let body = $('body').css('display', 'none');
-    setTimeout(() => {
-        body.css('display', '');
-    }, 100);
+        /**
+         * Force Repaint
+         * Temporary workaround for Chromium #428044 bug
+         * https://bugs.chromium.org/p/chromium/issues/detail?id=428044#c35
+         */
+        let body = $('body').css('display', 'none');
+        setTimeout(() => {
+            body.css('display', '');
+        }, 100);
+    });
 });
 
 function start() {
@@ -450,7 +452,7 @@ function setEvents() {
     });
 
     $("#optionsButton").unbind().click(function () {
-        var urlToOpen = chrome.extension.getURL('options_main_page.html');
+        var urlToOpen = chrome.runtime.getURL('options_main_page.html');
         chrome.tabs.create({
             url: urlToOpen
         });

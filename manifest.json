@@ -10,7 +10,7 @@
     },
     "default_locale": "en",
     "homepage_url": "http://www.editthiscookie.com/",
-    "browser_action": {
+    "action": {
         "default_icon": {
             "19": "img/icon_19x19.png",
             "38": "img/icon_38x38.png"
@@ -20,30 +20,26 @@
     },
     "devtools_page": "/devtools/devtools-page.html",
     "background": {
-        "scripts": [
-            "/lib/jquery-3.3.1.min.js",
-            "/lib/object-watch.js",
-            "/js/cookie_helpers.js",
-            "/js/utils.js",
-            "/js/data.js",
-            "/js/background.js",
-            "/devtools/background-devtools.js",
-            "/js/ga.js"
-        ]
+        "service_worker": "js/background-worker.js"
     },
     "options_page": "options_main_page.html",
     "permissions": [
         "tabs",
-        "\u003Call_urls\u003E",
         "cookies",
         "contextMenus",
         "unlimitedStorage",
         "notifications",
         "storage",
-        "clipboardWrite"
+        "clipboardWrite",
+        "alarms"
     ],
-    "content_security_policy": "script-src 'self' https://ssl.google-analytics.com; object-src 'self'",
-    "minimum_chrome_version": "41",
-    "manifest_version": 2,
+    "host_permissions": [
+        "\u003Call_urls\u003E"
+    ],
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'"
+    },
+    "minimum_chrome_version": "88",
+    "manifest_version": 3,
     "update_url": "http://clients2.google.com/service/update2/crx"
 }

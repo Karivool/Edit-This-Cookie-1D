@@ -129,88 +129,130 @@ var preferences_prefix = "options_";
 var data_prefix = "data_";
 
 var updateCallback = undefined;
-var dataToSync = [];
+var dataToSync = {};
 var syncTimeout = false;
 var syncTime = 200;
+var storageCache = {};
+var firstRun = null;
+
+function hasLegacyLocalStorage() {
+    try {
+        return typeof localStorage !== "undefined";
+    } catch (e) {
+        return false;
+    }
+}
+
+function parseLegacyValue(rawValue, defaultValue) {
+    try {
+        return JSON.parse(rawValue);
+    } catch (e) {
+        return defaultValue;
+    }
+}
+
+function queueSync(cID, cVal) {
+    dataToSync[cID] = cVal;
+    // Service workers can be suspended quickly, so avoid deferred writes there.
+    if (typeof window === "undefined") {
+        syncDataToStorage();
+        return;
+    }
+    if (!syncTimeout)
+        syncTimeout = setTimeout(syncDataToStorage, syncTime);
+}
 
 /**
- * Used to access settings and data in local storage
+ * Used to access settings and data in storage
  */
 var ls = {
     /**
-     * Stores an object in the local storage
+     * Stores an object in storage
      * @param name Name of the object to be stored
      * @param value Value of the object to be stored
      */
     set: function (name, value) {
-        localStorage.setItem(name, JSON.stringify(value));
+        storageCache[name] = value;
+        queueSync(name, value);
     },
 
     /**
-     * Get an object from local storage. If it doesn't exist, create one and add it to the local storage
+     * Get an object from storage. If it doesn't exist, create one and add it to the storage
      * @param name Name of the object to fetch
      * @param default_value Value to assign to the object if it doesn't exist.
      * @return The fetched/created object
      */
     get: function (name, default_value) {
-        if (localStorage[name] === undefined) {
-            if (default_value !== undefined)
-                ls.set(name, default_value);
-            else
-                return null;
+        if (Object.prototype.hasOwnProperty.call(storageCache, name)) {
+            return storageCache[name];
+        }
+
+        if (hasLegacyLocalStorage() && localStorage[name] !== undefined) {
+            var migratedValue = parseLegacyValue(localStorage.getItem(name), default_value);
+            storageCache[name] = migratedValue;
+            queueSync(name, migratedValue);
+            return migratedValue;
+        }
+
+        if (default_value !== undefined) {
+            storageCache[name] = default_value;
+            queueSync(name, default_value);
             return default_value;
         }
-        try {
-            return JSON.parse(localStorage.getItem(name));
-        } catch (e) {
-            ls.set(name, default_value);
-            return default_value;
-        }
+
+        return null;
     },
 
     /**
-     * Remove an object from the local storage
+     * Remove an object from storage
      * @param name Name of the object to delete
      */
     remove: function (name) {
-        localStorage.removeItem(name);
+        delete storageCache[name];
+        chrome.storage.local.remove(name);
     }
 };
 
 /**
  * This function is called regularly every "syncTime" ms.
- * The purpose of the following logic is to allow users of localStorage to modify user preferences and data
- * without having to worry about manually updating the local storage. It will be synced across all open pages
- * of the extension.
+ * The purpose of the following logic is to allow users of storage to modify user preferences and data
+ * without having to worry about manually updating persistent storage. It will be synced across all open
+ * pages of the extension and the service worker.
  */
-function syncDataToLS() {
-    for (var cID in dataToSync) {
-        var cVal = dataToSync[cID];
-        delete dataToSync[cID];
-        ls.set(cID, cVal);
-    }
+function syncDataToStorage() {
     syncTimeout = false;
+    var toWrite = dataToSync;
+    dataToSync = {};
+
+    if (Object.keys(toWrite).length === 0)
+        return;
+
+    chrome.storage.local.set(toWrite, function () {
+        if (chrome.runtime.lastError) {
+            console.error("Failed to write data to storage.");
+            console.error(chrome.runtime.lastError.message);
+        }
+    });
 }
 
 /**
- * Fetch data from the localStorage based on the previously declared templates (preferences_template and data_template).
+ * Fetch data from storage based on the previously declared templates (preferences_template and data_template).
  */
 function fetchData() {
-    for (var key in preferences_template) {
-        default_value = preferences_template[key].default_value;
-        preferences[key] = ls.get(preferences_prefix + key, default_value);
+    var key;
+    for (key in preferences_template) {
+        var defaultValue = preferences_template[key].default_value;
+        preferences[key] = ls.get(preferences_prefix + key, defaultValue);
 
         /**
          * When a preference change is detected, it will be added to the queue (dataToSync).
-         * Once the timer ticks in, data is taken off the queue and stored in the localStorage
+         * Once the timer ticks in, data is taken off the queue and stored in persistent storage.
          * @param id Name of the element being modified
          * @param oldval Old value
          * @param newval New value
          */
         var onPreferenceChange = function (id, oldval, newval) {
-            dataToSync[preferences_prefix + id] = newval;
-            if (!syncTimeout)
-                syncTimeout = setTimeout(syncDataToLS, syncTime);
+            queueSync(preferences_prefix + id, newval);
             return newval;
         };
 
@@ -226,21 +268,19 @@ function fetchData() {
         preferences.watch(key, onPreferenceChange, onPreferenceRead);
     }
 
-    for (var key in data_template) {
-        default_value = data_template[key].default_value;
-        data[key] = ls.get(data_prefix + key, default_value);
+    for (key in data_template) {
+        defaultValue = data_template[key].default_value;
+        data[key] = ls.get(data_prefix + key, defaultValue);
 
         /**
          * When data change is detected, it will be added to the queue (dataToSync).
-         * Once the timer ticks in, data is taken off the queue and stored in the localStorage
+         * Once the timer ticks in, data is taken off the queue and stored in persistent storage.
          * @param id Name of the element being modified
          * @param oldval Old value
          * @param newval New value
          */
         var onDataChange = function (id, oldval, newval) {
-            dataToSync[data_prefix + id] = newval;
-            if (!syncTimeout)
-                syncTimeout = setTimeout(syncDataToLS, syncTime);
+            queueSync(data_prefix + id, newval);
             return newval;
         };
 
@@ -257,52 +297,95 @@ function fetchData() {
     }
 }
 
-/**
- * Monitor the storage for changes. When triggered it checks to see whether any preference or data has changed.
- * If so, it verifies whether that data had been used.
- * If relevant data has changed and an update callback has been set, it will be called.
- */
-window.addEventListener("storage", function (event) {
-    try {
-        var varUsed = false;
-        var varChanged = false;
-        var oldValue = (event.oldValue !== null) ? JSON.parse(event.oldValue) : null;
-        var newValue = (event.newValue !== null) ? JSON.parse(event.newValue) : null;
+function applyStorageEvent(storageKey, newValue) {
+    var varUsed = false;
+    var varChanged = false;
+    var key;
 
-        if (oldValue === newValue)
+    if (storageKey.indexOf(preferences_prefix) === 0) {
+        key = storageKey.substring(preferences_prefix.length);
+        if (preferences_template[key] === undefined)
             return;
 
-        var key;
-        if (event.key.indexOf(preferences_prefix) === 0) {
-            key = event.key.substring(preferences_prefix.length);
-            varUsed = !!preferences_template[key].used;
-            varChanged = preferences[key] !== newValue;
-            preferences[key] = (newValue === null) ? preferences_template[key].default_value : newValue;
-            preferences_template[key].used = varUsed;
-        } else if (event.key.indexOf(data_prefix) === 0) {
-            key = event.key.substring(data_prefix.length);
-            varUsed = (data_template[key].used !== undefined && data_template[key].used);
-            varChanged = data[key] !== newValue;
-            data[key] = (newValue === null) ? data_template[key].default_value : newValue;
-            data_template[key].used = varUsed;
-        }
-        if (varUsed && varChanged && updateCallback !== undefined) {
-            updateCallback();
+        varUsed = !!preferences_template[key].used;
+        varChanged = preferences[key] !== newValue;
+        preferences[key] = (newValue === undefined) ? preferences_template[key].default_value : newValue;
+        preferences_template[key].used = varUsed;
+    } else if (storageKey.indexOf(data_prefix) === 0) {
+        key = storageKey.substring(data_prefix.length);
+        if (data_template[key] === undefined)
+            return;
+
+        varUsed = (data_template[key].used !== undefined && data_template[key].used);
+        varChanged = data[key] !== newValue;
+        data[key] = (newValue === undefined) ? data_template[key].default_value : newValue;
+        data_template[key].used = varUsed;
+    } else {
+        return;
+    }
+
+    if (varUsed && varChanged && updateCallback !== undefined) {
+        updateCallback();
+    }
+}
+
+chrome.storage.onChanged.addListener(function (changes, areaName) {
+    if (areaName !== "local")
+        return;
+
+    try {
+        for (var key in changes) {
+            var newValue = changes[key].newValue;
+            if (newValue === undefined)
+                delete storageCache[key];
+            else
+                storageCache[key] = newValue;
+            applyStorageEvent(key, newValue);
         }
     } catch (e) {
         console.error("Failed to call on the updateCallback.");
         console.error(e.message);
     }
-}, false);
+});
 
-// Finally fetch the data
-fetchData();
-
-firstRun = ls.get("status_firstRun");
-if (firstRun !== null) {
-    data.lastVersionRun = chrome.runtime.getManifest().version;
+function loadStorageCache() {
+    return new Promise(function (resolve) {
+        chrome.storage.local.get(null, function (items) {
+            storageCache = items || {};
+            resolve();
+        });
+    });
 }
 
-// On exit, make sure any data in the queue is synced to the localStorage
-var syncTimeout = setTimeout(syncDataToLS, syncTime);
-$(window).bind("beforeunload", syncDataToLS);
+function initializeData() {
+    return loadStorageCache().then(function () {
+        fetchData();
+
+        firstRun = ls.get("status_firstRun");
+        if (firstRun !== null) {
+            data.lastVersionRun = chrome.runtime.getManifest().version;
+        }
+    });
+}
+
+var dataReady = initializeData();
+
+function waitForData(callback) {
+    if (typeof callback === "function") {
+        dataReady
+            .then(function () {
+                callback();
+            })
+            .catch(function (e) {
+                console.error("Failed waiting for data initialization.");
+                console.error(e.message);
+            });
+    }
+    return dataReady;
+}
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("beforeunload", function () {
+        syncDataToStorage();
+    });
+}

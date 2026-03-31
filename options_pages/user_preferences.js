@@ -1,7 +1,9 @@
 $(document).ready(function () {
-    $("input:checkbox, input:text, select").uniform();
-    setOptions();
-    setEvents();
+    waitForData(function () {
+        $("input:checkbox, input:text, select").uniform();
+        setOptions();
+        setEvents();
+    });
 });
 
 updateCallback = function () {
