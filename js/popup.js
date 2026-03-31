@@ -220,7 +220,7 @@ function createAccordionList(cks, callback, callbackArguments) {
     let createAccordionCallbackArguments = callbackArguments;
     let cookiesListElement = $("#cookiesList");
 
-    if (cookiesListElement.data("ui-accordion")) {
+    if (cookiesListElement.accordion("instance")) {
         cookiesListElement.accordion("destroy");
     }
 
